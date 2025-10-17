@@ -29,40 +29,82 @@ async def recommend_for(session: AsyncSession, user_id: str, k: int = 10):
     res = await session.execute(select(Article))
     arts = res.scalars().all()
     
-    # Simple keyword-based scoring (more reliable than hash embeddings)
+    # Aggressive keyword-based scoring with comprehensive matching
     scored = []
     for article in arts:
         score = 0.0
         text_to_search = f"{article.title} {article.description} {article.content}".lower()
         
-        # Direct keyword matching
+        # Direct keyword matching with higher weights
         for interest in interests:
             if interest in text_to_search:
-                score += 1.0
+                score += 3.0  # Much higher weight for direct matches
         
-        # Sports-specific matching
-        if any(sport in interests for sport in ["sports", "football", "basketball", "soccer", "baseball"]):
-            sports_keywords = ["nfl", "nba", "nhl", "mlb", "soccer", "football", "basketball", "baseball", 
-                             "panthers", "lakers", "warriors", "cowboys", "patriots", "game", "team", "player"]
-            for keyword in sports_keywords:
-                if keyword in text_to_search:
-                    score += 0.5
-        
-        # Tech-specific matching
-        if any(tech in interests for tech in ["technology", "ai", "tech", "apple", "google", "microsoft"]):
-            tech_keywords = ["ai", "artificial intelligence", "apple", "google", "microsoft", "tech", 
-                           "software", "computer", "digital", "innovation", "startup"]
+        # Comprehensive technology matching
+        if any(tech in interests for tech in ["technology", "ai", "tech", "apple", "google", "microsoft", "computer", "software"]):
+            tech_keywords = [
+                "ai", "artificial intelligence", "machine learning", "neural network", "algorithm",
+                "apple", "google", "microsoft", "amazon", "meta", "facebook", "tesla", "openai",
+                "tech", "technology", "software", "computer", "digital", "innovation", "startup",
+                "chip", "semiconductor", "cpu", "gpu", "processor", "intel", "nvidia", "amd",
+                "smartphone", "iphone", "android", "app", "application", "programming", "code",
+                "cybersecurity", "hacking", "data", "cloud", "server", "database", "internet",
+                "automation", "robot", "drone", "electric", "battery", "solar", "renewable",
+                "crypto", "bitcoin", "blockchain", "nft", "web3", "metaverse", "vr", "ar"
+            ]
             for keyword in tech_keywords:
                 if keyword in text_to_search:
-                    score += 0.5
+                    score += 2.0  # High weight for tech keywords
         
-        # Business-specific matching
-        if any(biz in interests for biz in ["business", "finance", "economy", "market", "stock"]):
-            biz_keywords = ["business", "finance", "economy", "market", "stock", "investment", 
-                          "company", "corporate", "financial", "trading"]
+        # Comprehensive sports matching
+        if any(sport in interests for sport in ["sports", "football", "basketball", "soccer", "baseball", "tennis", "golf"]):
+            sports_keywords = [
+                "nfl", "nba", "nhl", "mlb", "nascar", "pga", "tennis", "golf", "soccer", "football", 
+                "basketball", "baseball", "hockey", "racing", "olympics", "championship", "playoff",
+                "panthers", "lakers", "warriors", "cowboys", "patriots", "yankees", "dodgers",
+                "game", "team", "player", "coach", "season", "score", "win", "loss", "victory",
+                "stadium", "arena", "field", "court", "track", "gym", "training", "fitness"
+            ]
+            for keyword in sports_keywords:
+                if keyword in text_to_search:
+                    score += 2.0  # High weight for sports keywords
+        
+        # Comprehensive business matching
+        if any(biz in interests for biz in ["business", "finance", "economy", "market", "stock", "money", "investment"]):
+            biz_keywords = [
+                "business", "finance", "economy", "market", "stock", "investment", "trading",
+                "company", "corporate", "financial", "bank", "banking", "loan", "credit",
+                "revenue", "profit", "loss", "earnings", "quarterly", "ipo", "merger", "acquisition",
+                "ceo", "executive", "board", "shareholder", "dividend", "portfolio", "fund",
+                "startup", "venture", "capital", "funding", "valuation", "unicorn", "ipo"
+            ]
             for keyword in biz_keywords:
                 if keyword in text_to_search:
-                    score += 0.5
+                    score += 2.0  # High weight for business keywords
+        
+        # Health and science matching
+        if any(health in interests for health in ["health", "science", "medical", "medicine", "research"]):
+            health_keywords = [
+                "health", "medical", "medicine", "doctor", "hospital", "patient", "treatment",
+                "research", "study", "clinical", "trial", "vaccine", "drug", "therapy",
+                "cancer", "diabetes", "heart", "brain", "mental", "psychology", "therapy",
+                "fitness", "exercise", "nutrition", "diet", "wellness", "lifestyle"
+            ]
+            for keyword in health_keywords:
+                if keyword in text_to_search:
+                    score += 2.0
+        
+        # Entertainment matching
+        if any(ent in interests for ent in ["entertainment", "movie", "music", "celebrity", "hollywood"]):
+            ent_keywords = [
+                "movie", "film", "cinema", "hollywood", "actor", "actress", "director", "producer",
+                "music", "song", "album", "artist", "singer", "band", "concert", "tour",
+                "celebrity", "famous", "star", "award", "oscar", "grammy", "emmy", "golden globe",
+                "netflix", "disney", "hbo", "streaming", "tv", "television", "series", "show"
+            ]
+            for keyword in ent_keywords:
+                if keyword in text_to_search:
+                    score += 2.0
         
         scored.append((score, article))
     
@@ -103,4 +145,31 @@ async def recommend_for(session: AsyncSession, user_id: str, k: int = 10):
     for score, article in recent_articles[:k]:
         result.append(article)
     
-    return result
+    # If we don't have enough relevant articles, add some recent ones regardless of score
+    if len(result) < k:
+        print(f"Only found {len(result)} relevant articles, adding recent ones...")
+        # Get recent articles that weren't already included
+        already_included = {article.id for article in result}
+        for score, article in recent_articles:
+            if article.id not in already_included and len(result) < k:
+                result.append(article)
+    
+    # Final fallback: if still not enough articles, get any recent articles
+    if len(result) < k:
+        print(f"Still only {len(result)} articles, using fallback...")
+        # Get any articles from the last 7 days
+        from datetime import datetime, timedelta
+        week_cutoff = datetime.now() - timedelta(days=7)
+        fallback_articles = []
+        for article in arts:
+            if article.published_at:
+                try:
+                    pub_time = datetime.fromisoformat(article.published_at.replace('Z', '+00:00'))
+                    week_cutoff_aware = week_cutoff.replace(tzinfo=pub_time.tzinfo)
+                    if pub_time >= week_cutoff_aware and article.id not in {a.id for a in result}:
+                        fallback_articles.append(article)
+                except:
+                    continue
+        result.extend(fallback_articles[:k-len(result)])
+    
+    return result[:k]
