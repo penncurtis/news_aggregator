@@ -46,12 +46,11 @@ with col1:
                 with st.spinner("Fetching articles for your interests..."):
                     interests_list = [s.strip() for s in interests.split(",")]
                     r2 = requests.post(f"{API}/ingest-for-interests", json=interests_list)
-                    if r2.status_code == 200:
-                        result = r2.json()
-                        st.success(f"✅ Feed updated! Added {result['ingested']} new articles for your interests.")
-                    else:
-                        st.success("✅ Feed updated! (Couldn't fetch new articles)")
-                st.success(f"🔄 Feed updated! New interests: {interests}")
+                if r2.status_code == 200:
+                    result = r2.json()
+                    st.success(f"✅ Feed updated! New interests: {interests}")
+                else:
+                    st.success(f"✅ Feed updated! New interests: {interests}")
             else:
                 st.error("Failed to update feed")
         except Exception as e:
